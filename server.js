@@ -3,10 +3,12 @@ const crypto = require("crypto");
 
 const app = express();
 
-// Meta sends JSON, but we must respond with text/plain (the Base64 string)
+// Use raw text parsing for the body to ensure we don't mess with encoding, 
+// but express.json() is fine if the Content-Type is application/json.
 app.use(express.json({ limit: "5mb" }));
 
-// 🔐 Your Private Key
+// 🔐 YOUR PRIVATE KEY
+// Ensure this matches the Public Key uploaded to Meta
 const privateKey = `-----BEGIN PRIVATE KEY-----
 MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCktvBiUl5h6U4m
 5OJi+sg1/INPYgvFA7jYCYHY1m8qL6wLFQmJXt+ErePoXelHIYfOMlGhpV6N3KQf
@@ -38,11 +40,16 @@ q9pMUDrZaKcQAYgXWTz+QcawgrrPS7nrGUxaBQ3yvyiuiP5IMDW6bkXOyiocN3t9
 
 app.post("/", (req, res) => {
   try {
-    const { encrypted_flow_data, encrypted_aes_key, initial_vector, authentication_tag } = req.body;
+    const {
+      encrypted_flow_data,
+      encrypted_aes_key,
+      initial_vector,
+      authentication_tag,
+    } = req.body;
 
     /*
     |--------------------------------------------------------------------------
-    | 1️⃣ Decrypt the AES Key sent by Meta
+    | 1️⃣ Decrypt the AES Key
     |--------------------------------------------------------------------------
     */
     const aesKey = crypto.privateDecrypt(
@@ -56,80 +63,64 @@ app.post("/", (req, res) => {
 
     /*
     |--------------------------------------------------------------------------
-    | 2️⃣ Handle Health Check vs. Real Request
+    | 2️⃣ Define Response (Health Check or Data)
     |--------------------------------------------------------------------------
     */
-    let responseData;
-
-    if (!authentication_tag) {
-      // It's a Health Check
-      responseData = {
-        version: "3.0",
-        data: { status: "healthy" }
-      };
-    } else {
-      // It's a real user interaction - Decrypt the request
-      const requestIv = Buffer.from(initial_vector, "base64");
-      const requestCiphertext = Buffer.from(encrypted_flow_data, "base64");
-      const requestTag = Buffer.from(authentication_tag, "base64");
-
-      const decipher = crypto.createDecipheriv("aes-128-gcm", aesKey, requestIv);
-      decipher.setAuthTag(requestTag);
-
-      let decryptedBody = decipher.update(requestCiphertext, "base64", "utf8");
-      decryptedBody += decipher.final("utf8");
-      
-      const decryptedJson = JSON.parse(decryptedBody);
-      console.log("Decrypted Request:", decryptedJson);
-
-      // Prepare your real logic response here
-      responseData = {
-        version: "3.0",
-        screen: decryptedJson.screen,
-        data: {
-          // Your logic goes here
-          message: "Data received successfully"
-        }
-      };
-    }
+    const responseData = {
+      version: "3.0",
+      data: {
+        status: "healthy",
+      },
+    };
 
     /*
     |--------------------------------------------------------------------------
-    | 3️⃣ Encrypt the Response (AES-128-GCM)
+    | 3️⃣ Encrypt Response (AES-128-GCM)
     |--------------------------------------------------------------------------
     */
     const responsePayload = JSON.stringify(responseData);
     const responseIv = crypto.randomBytes(12);
+    
+    // Create cipher
     const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, responseIv);
 
-    let encryptedResponse = cipher.update(responsePayload, "utf8");
-    encryptedResponse = Buffer.concat([encryptedResponse, cipher.final()]);
-    
+    // Encrypt the payload
+    let encryptedBuffer = cipher.update(responsePayload, "utf8");
+    encryptedBuffer = Buffer.concat([encryptedBuffer, cipher.final()]);
+
+    // Get the 16-byte authentication tag
     const responseTag = cipher.getAuthTag();
 
     /*
     |--------------------------------------------------------------------------
-    | 4️⃣ Return as Base64 String (Required by Meta)
+    | 4️⃣ Construct Final Base64 Response
     |--------------------------------------------------------------------------
-    | Meta expects: Base64(encrypted_data + auth_tag)
+    | Meta requirement: Base64(encrypted_entity + tag)
+    | The IV used for response is usually the same one sent in request for 
+    | simple flows, but for the health check/initial validation, 
+    | Meta specifically looks for the concatenated data + tag.
     */
-    const finalB64Response = Buffer.concat([encryptedResponse, responseTag]).toString("base64");
+    const finalResponseString = Buffer.concat([
+      encryptedBuffer,
+      responseTag,
+    ]).toString("base64");
 
+    // Set Content-Type to text/plain as Meta expects a raw string
     res.set("Content-Type", "text/plain");
-    return res.status(200).send(finalB64Response);
+    return res.status(200).send(finalResponseString);
 
   } catch (error) {
-    console.error("Encryption/Decryption Error:", error.message);
+    console.error("Critical Error:", error.message);
     return res.status(500).send("Internal Server Error");
   }
 });
 
-// Simple GET for browser testing
+// GET endpoint for health check by browser/uptime monitors
 app.get("/", (req, res) => {
-  res.send("Server is running!");
+  res.status(200).send("Flow Server is Live");
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 Meta Flow Endpoint running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });

@@ -23,13 +23,17 @@ app.post("/", (req, res) => {
     } = req.body;
 
     if (
-      !encrypted_aes_key ||
-      !encrypted_flow_data ||
-      !initial_vector ||
-      !authentication_tag
-    ) {
-      return res.status(400).json({ error: "Missing required fields" });
-    }
+  !encrypted_aes_key ||
+  !encrypted_flow_data ||
+  !initial_vector ||
+  !authentication_tag
+) {
+  console.log("🔎 Health check or empty request received");
+  return res.status(200).json({
+    version: "3.0",
+    data: { status: "healthy" }
+  });
+}
 
     // 1️⃣ Decrypt AES Key using RSA Private Key
     const aesKey = crypto.privateDecrypt(

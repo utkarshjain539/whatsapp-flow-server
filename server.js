@@ -91,10 +91,14 @@ app.post("/", (req, res) => {
 
     // 3️⃣ Prepare response data
     const responseData = {
-      data: {}
-    };
+  version: "3.0",
+  data: {}
+};
 
-    const responsePayload = JSON.stringify(responseData);
+   const responsePayload = JSON.stringify({
+  version: "3.0",
+  data: {}
+});
 
     // 4️⃣ Encrypt response using AES-128-GCM
     const iv = crypto.randomBytes(12);

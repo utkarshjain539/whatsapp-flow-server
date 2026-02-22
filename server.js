@@ -40,13 +40,13 @@ app.post("/", (req, res) => {
 
     console.log("Incoming Body:", body);
 
+    // Health check (no encryption payload)
     if (!body.encrypted_aes_key) {
       console.log("Health check request");
       return res.json({ status: "healthy" });
     }
 
-    console.log("Encrypted AES Key Exists");
-
+    // 1️⃣ Decrypt AES key (RSA-OAEP SHA256)
     const aesKey = crypto.privateDecrypt(
       {
         key: privateKey,
@@ -58,13 +58,45 @@ app.post("/", (req, res) => {
 
     console.log("AES Key Length:", aesKey.length);
 
+    // 2️⃣ Decrypt incoming Flow data (AES-128-GCM)
+    const requestIv = Buffer.from(body.initial_vector, "base64");
+    const requestCiphertext = Buffer.from(body.encrypted_flow_data, "base64");
+    const requestAuthTag = body.authentication_tag
+      ? Buffer.from(body.authentication_tag, "base64")
+      : null;
 
-    // 2️⃣ Prepare Flow response
-    const responsePayload = JSON.stringify({
+    let decryptedPayload;
+
+    if (requestAuthTag) {
+      const decipher = crypto.createDecipheriv(
+        "aes-128-gcm",
+        aesKey,
+        requestIv
+      );
+      decipher.setAuthTag(requestAuthTag);
+
+      decryptedPayload = decipher.update(requestCiphertext);
+      decryptedPayload = Buffer.concat([
+        decryptedPayload,
+        decipher.final()
+      ]);
+    } else {
+      // Some health checks may not include auth tag
+      decryptedPayload = Buffer.from("{}");
+    }
+
+    console.log("Decrypted Request:", decryptedPayload.toString());
+
+    const requestJson = JSON.parse(decryptedPayload.toString());
+
+    // 3️⃣ Prepare response data
+    const responseData = {
       data: {}
-    });
+    };
 
-    // 3️⃣ Encrypt response using AES-256-GCM
+    const responsePayload = JSON.stringify(responseData);
+
+    // 4️⃣ Encrypt response using AES-128-GCM
     const iv = crypto.randomBytes(12);
     console.log("IV Length:", iv.length);
 
@@ -72,17 +104,19 @@ app.post("/", (req, res) => {
 
     let encrypted = cipher.update(responsePayload, "utf8");
     encrypted = Buffer.concat([encrypted, cipher.final()]);
+
     const authTag = cipher.getAuthTag();
 
+    // 5️⃣ Return encrypted response
     return res.json({
-  encrypted_flow_data: encrypted.toString("base64"),
-  encrypted_aes_key: body.encrypted_aes_key,   // ← MUST INCLUDE
-  initial_vector: iv.toString("base64"),
-  authentication_tag: authTag.toString("base64")
-});
+      encrypted_flow_data: encrypted.toString("base64"),
+      encrypted_aes_key: body.encrypted_aes_key,
+      initial_vector: iv.toString("base64"),
+      authentication_tag: authTag.toString("base64")
+    });
 
   } catch (error) {
-    console.error(error);
+    console.error("Server Error:", error);
     return res.status(500).json({ error: "Server error" });
   }
 });
@@ -90,6 +124,7 @@ app.post("/", (req, res) => {
 app.get("/", (req, res) => {
   res.json({ status: "healthy" });
 });
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("Server running on port", PORT);

@@ -66,7 +66,7 @@ app.post("/", (req, res) => {
 
     // 3️⃣ Encrypt response using AES-256-GCM
     const iv = crypto.randomBytes(12);
-    const cipher = crypto.createCipheriv("aes-256-gcm", aesKey, iv);
+    const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, iv);
 
     let encrypted = cipher.update(responsePayload, "utf8");
     encrypted = Buffer.concat([encrypted, cipher.final()]);

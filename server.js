@@ -38,12 +38,15 @@ app.post("/", (req, res) => {
   try {
     const body = req.body;
 
-    // Health check
+    console.log("Incoming Body:", body);
+
     if (!body.encrypted_aes_key) {
+      console.log("Health check request");
       return res.json({ status: "healthy" });
     }
 
-    // 1️⃣ Decrypt AES key using RSA-OAEP SHA256
+    console.log("Encrypted AES Key Exists");
+
     const aesKey = crypto.privateDecrypt(
       {
         key: privateKey,
@@ -52,7 +55,9 @@ app.post("/", (req, res) => {
       },
       Buffer.from(body.encrypted_aes_key, "base64")
     );
-      console.log("AES Key Length:", aesKey.length);
+
+    console.log("AES Key Length:", aesKey.length);
+
 
     // 2️⃣ Prepare Flow response
     const responsePayload = JSON.stringify({

@@ -2,7 +2,7 @@ const express = require("express");
 const crypto = require("crypto");
 
 const app = express();
-app.use(express.json({ limit: "5mb" }));
+app.use(express.json());
 
 // 🔐 YOUR PRIVATE KEY (Ensure the matching Public Key is saved in Meta Dashboard)
 const privateKey = `-----BEGIN PRIVATE KEY-----
@@ -37,9 +37,9 @@ oTnhnR+OmQ4t3WqlRmFeD/K7
 
 app.post("/", (req, res) => {
   try {
-    const { encrypted_flow_data, encrypted_aes_key, initial_vector, authentication_tag } = req.body;
+    const { encrypted_aes_key, initial_vector } = req.body;
 
-    // 1. Decrypt the AES Key from Meta
+    // 1. Decrypt AES Key
     const aesKey = crypto.privateDecrypt(
       {
         key: privateKey,
@@ -49,48 +49,33 @@ app.post("/", (req, res) => {
       Buffer.from(encrypted_aes_key, "base64")
     );
 
-    // 2. Prepare the Response Object
-    // This is the standard healthy response Meta expects during health check
-    const responseData = {
+    // 2. Prepare Response
+    const responsePayload = JSON.stringify({
       version: "3.0",
-      data: {
-        status: "healthy"
-      }
-    };
+      data: { status: "healthy" }
+    });
 
-    // 3. Encrypt the Response
-    const responsePayload = JSON.stringify(responseData);
-    
-    // CRITICAL: Re-use the initial_vector sent by Meta for the response encryption
+    // 3. Encrypt using Meta's IV
     const iv = Buffer.from(initial_vector, "base64");
     
-const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, iv, { authTagLength: 16 });
-    // Encrypting data
+    // Explicitly define authTagLength for Meta compatibility
+    const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, iv, { authTagLength: 16 });
+
     let encrypted = cipher.update(responsePayload, "utf8");
     encrypted = Buffer.concat([encrypted, cipher.final()]);
 
-    // Get the 16-byte authentication tag
     const authTag = cipher.getAuthTag();
 
-    // 4. Concatenate Encrypted Data + Tag and then Base64 encode
-    // Meta decrypts this by taking the last 16 bytes as the tag
+    // 4. Combine: [Encrypted Data] + [Auth Tag]
     const signedResponse = Buffer.concat([encrypted, authTag]).toString("base64");
 
-    // 5. Send as plain text
     res.set("Content-Type", "text/plain");
     return res.status(200).send(signedResponse);
 
   } catch (error) {
-    console.error("Health Check Error:", error.message);
-    return res.status(500).send("Encryption Failed");
+    console.error("Critical Error:", error.message);
+    return res.status(421).send("Decryption/Encryption Mismatch");
   }
 });
 
-app.get("/", (req, res) => {
-  res.send("Server is awake!");
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Meta Flow Server running on port ${PORT}`);
-});
+app.listen(3000, () => console.log("Server ready"));

@@ -28,54 +28,61 @@ app.post("/", (req, res) => {
     }
 
     const aesKey = crypto.privateDecrypt(
-      {
-        key: privateKey,
-        padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
-        oaepHash: "sha256",
-      },
-      Buffer.from(encrypted_aes_key, "base64")
-    );
+  {
+    key: privateKey,
+    padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+    oaepHash: "sha256",
+  },
+  Buffer.from(encrypted_aes_key, "base64")
+);
 
-    const decipher = crypto.createDecipheriv(
-      "aes-256-gcm",
-      aesKey,
-      Buffer.from(initial_vector, "base64")
-    );
+console.log("AES Key Length:", aesKey.length);
 
-    decipher.setAuthTag(Buffer.from(authentication_tag, "base64"));
+// Must be 32
+if (aesKey.length !== 32) {
+  throw new Error("Invalid AES key length");
+}
 
-    let decrypted = decipher.update(
-      Buffer.from(encrypted_flow_data, "base64")
-    );
+const decipher = crypto.createDecipheriv(
+  "aes-256-gcm",
+  aesKey,
+  Buffer.from(initial_vector, "base64")
+);
 
-    decrypted = Buffer.concat([decrypted, decipher.final()]);
+decipher.setAuthTag(Buffer.from(authentication_tag, "base64"));
 
-    console.log("Decrypted:", decrypted.toString());
+let decrypted = decipher.update(
+  Buffer.from(encrypted_flow_data, "base64")
+);
 
-    const responsePayload = JSON.stringify({
-      version: "3.0",
-      data: { status: "healthy" }
-    });
+decrypted = Buffer.concat([decrypted, decipher.final()]);
 
-    const responseIv = crypto.randomBytes(12);
+console.log("Decrypted:", decrypted.toString());
 
-    const cipher = crypto.createCipheriv(
-      "aes-256-gcm",
-      aesKey,
-      responseIv
-    );
+const responsePayload = JSON.stringify({
+  version: "3.0",
+  data: { status: "healthy" }
+});
 
-    let encrypted = cipher.update(responsePayload, "utf8");
-    encrypted = Buffer.concat([encrypted, cipher.final()]);
+const responseIv = crypto.randomBytes(12);
 
-    const authTag = cipher.getAuthTag();
+const cipher = crypto.createCipheriv(
+  "aes-256-gcm",
+  aesKey,
+  responseIv
+);
 
-    return res.status(200).json({
-      encrypted_flow_data: encrypted.toString("base64"),
-      encrypted_aes_key: encrypted_aes_key,
-      initial_vector: responseIv.toString("base64"),
-      authentication_tag: authTag.toString("base64")
-    });
+let encrypted = cipher.update(responsePayload, "utf8");
+encrypted = Buffer.concat([encrypted, cipher.final()]);
+
+const authTag = cipher.getAuthTag();
+
+return res.status(200).json({
+  encrypted_flow_data: encrypted.toString("base64"),
+  encrypted_aes_key: encrypted_aes_key,
+  initial_vector: responseIv.toString("base64"),
+  authentication_tag: authTag.toString("base64")
+});
 
   } catch (err) {
     console.error("Flow error:", err);

@@ -64,8 +64,7 @@ app.post("/", (req, res) => {
     // CRITICAL: Re-use the initial_vector sent by Meta for the response encryption
     const iv = Buffer.from(initial_vector, "base64");
     
-    const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, iv);
-
+const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, iv, { authTagLength: 16 });
     // Encrypting data
     let encrypted = cipher.update(responsePayload, "utf8");
     encrypted = Buffer.concat([encrypted, cipher.final()]);

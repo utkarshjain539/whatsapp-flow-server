@@ -60,7 +60,7 @@ app.post("/", (req, res) => {
     const responseIv = crypto.randomBytes(12);
 
     const cipher = crypto.createCipheriv(
-      "aes-128-gcm",
+      "aes-256-gcm",
       aesKey,
       responseIv
     );

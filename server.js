@@ -50,6 +50,7 @@ app.post("/", (req, res) => {
         padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
         oaepHash: "sha256"
       },
+      console.log("AES Key Length:", aesKey.length);
       Buffer.from(body.encrypted_aes_key, "base64")
     );
 

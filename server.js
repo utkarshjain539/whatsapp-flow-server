@@ -3,7 +3,10 @@ const crypto = require("crypto");
 
 const app = express();
 app.use(express.json({ limit: "5mb" }));
-
+app.use((req, res, next) => {
+  res.setHeader("Content-Type", "application/json");
+  next();
+});
 // 🔐 Paste your PRIVATE KEY here
 const privateKey = `-----BEGIN PRIVATE KEY-----
 MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCktvBiUl5h6U4m
@@ -128,12 +131,11 @@ if (
     | 5️⃣ Return Encrypted Response
     |--------------------------------------------------------------------------
     */
-    return res.json({
+   return res.status(200).json({
   encrypted_flow_data: encrypted.toString("base64"),
   encrypted_aes_key: body.encrypted_aes_key,
   initial_vector: iv.toString("base64"),
-  authentication_tag: authTag.toString("base64"),
-  flow_token: body.flow_token
+  authentication_tag: authTag.toString("base64")
 });
 
   } catch (error) {

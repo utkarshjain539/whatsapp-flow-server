@@ -73,10 +73,11 @@ app.post("/", (req, res) => {
     const authTag = cipher.getAuthTag();
 
     return res.json({
-      encrypted_flow_data: encrypted.toString("base64"),
-      initial_vector: iv.toString("base64"),
-      authentication_tag: authTag.toString("base64")
-    });
+  encrypted_flow_data: encrypted.toString("base64"),
+  encrypted_aes_key: body.encrypted_aes_key,   // ← MUST INCLUDE
+  initial_vector: iv.toString("base64"),
+  authentication_tag: authTag.toString("base64")
+});
 
   } catch (error) {
     console.error(error);

@@ -37,7 +37,7 @@ app.post("/", (req, res) => {
     );
 
     const decipher = crypto.createDecipheriv(
-      "aes-128-gcm",
+      "aes-256-gcm",
       aesKey,
       Buffer.from(initial_vector, "base64")
     );

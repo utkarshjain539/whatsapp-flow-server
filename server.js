@@ -66,6 +66,8 @@ app.post("/", (req, res) => {
 
     // 3️⃣ Encrypt response using AES-256-GCM
     const iv = crypto.randomBytes(12);
+    console.log("IV Length:", iv.length);
+
     const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, iv);
 
     let encrypted = cipher.update(responsePayload, "utf8");
@@ -88,7 +90,6 @@ app.post("/", (req, res) => {
 app.get("/", (req, res) => {
   res.json({ status: "healthy" });
 });
-console.log("IV Length:", iv.length);
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("Server running on port", PORT);

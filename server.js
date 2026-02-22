@@ -38,15 +38,16 @@ app.post("/", (req, res) => {
   try {
     const body = req.body;
 
-    console.log("Incoming Body:", body);
-
-    // Health check (no encryption payload)
+    // Health check (non-encrypted ping)
     if (!body.encrypted_aes_key) {
-      console.log("Health check request");
       return res.json({ status: "healthy" });
     }
 
-    // 1️⃣ Decrypt AES key (RSA-OAEP SHA256)
+    /*
+    |--------------------------------------------------------------------------
+    | 1️⃣ Decrypt AES Key (RSA-OAEP SHA256)
+    |--------------------------------------------------------------------------
+    */
     const aesKey = crypto.privateDecrypt(
       {
         key: privateKey,
@@ -56,16 +57,18 @@ app.post("/", (req, res) => {
       Buffer.from(body.encrypted_aes_key, "base64")
     );
 
-    console.log("AES Key Length:", aesKey.length);
-
-    // 2️⃣ Decrypt incoming Flow data (AES-128-GCM)
+    /*
+    |--------------------------------------------------------------------------
+    | 2️⃣ Decrypt Incoming Flow Data (AES-128-GCM)
+    |--------------------------------------------------------------------------
+    */
     const requestIv = Buffer.from(body.initial_vector, "base64");
     const requestCiphertext = Buffer.from(body.encrypted_flow_data, "base64");
     const requestAuthTag = body.authentication_tag
       ? Buffer.from(body.authentication_tag, "base64")
       : null;
 
-    let decryptedPayload;
+    let decryptedPayload = Buffer.from("{}");
 
     if (requestAuthTag) {
       const decipher = crypto.createDecipheriv(
@@ -80,38 +83,43 @@ app.post("/", (req, res) => {
         decryptedPayload,
         decipher.final()
       ]);
-    } else {
-      // Some health checks may not include auth tag
-      decryptedPayload = Buffer.from("{}");
     }
-
-    console.log("Decrypted Request:", decryptedPayload.toString());
 
     const requestJson = JSON.parse(decryptedPayload.toString());
 
-    // 3️⃣ Prepare response data
-    const responseData = {
-  version: "3.0",
-  data: {}
-};
+    /*
+    |--------------------------------------------------------------------------
+    | 3️⃣ Prepare Response Data
+    |--------------------------------------------------------------------------
+    */
+    const responsePayload = JSON.stringify({
+      version: "3.0",
+      data: {}
+    });
 
-   const responsePayload = JSON.stringify({
-  version: "3.0",
-  data: {}
-});
-
-    // 4️⃣ Encrypt response using AES-128-GCM
+    /*
+    |--------------------------------------------------------------------------
+    | 4️⃣ Encrypt Response (AES-128-GCM)
+    |--------------------------------------------------------------------------
+    */
     const iv = crypto.randomBytes(12);
-    console.log("IV Length:", iv.length);
 
-    const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, iv);
+    const cipher = crypto.createCipheriv(
+      "aes-128-gcm",
+      aesKey,
+      iv
+    );
 
     let encrypted = cipher.update(responsePayload, "utf8");
     encrypted = Buffer.concat([encrypted, cipher.final()]);
 
     const authTag = cipher.getAuthTag();
 
-    // 5️⃣ Return encrypted response
+    /*
+    |--------------------------------------------------------------------------
+    | 5️⃣ Return Encrypted Response
+    |--------------------------------------------------------------------------
+    */
     return res.json({
       encrypted_flow_data: encrypted.toString("base64"),
       encrypted_aes_key: body.encrypted_aes_key,

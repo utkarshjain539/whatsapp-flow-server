@@ -36,17 +36,18 @@ MenuoTnhnR+OmQ4t3WqlRmFeD/K7
 
 app.post("/", (req, res) => {
   try {
-    const { encrypted_aes_key, encrypted_flow_data, initial_vector } = req.body;
-    
-    // Log what we received (for debugging)
-    console.log("Received request with fields:", Object.keys(req.body));
+    const {
+      encrypted_aes_key,
+      encrypted_flow_data,
+      initial_vector,
+      authentication_tag
+    } = req.body;
 
-    if (!encrypted_aes_key || !initial_vector) {
-      console.error("Missing required fields");
-      return res.status(421).send("Missing encryption parameters");
+    if (!encrypted_aes_key || !encrypted_flow_data || !initial_vector || !authentication_tag) {
+      return res.status(400).json({ error: "Missing required fields" });
     }
 
-    // 1. Decrypt AES Key
+    // 1️⃣ Decrypt AES key
     const aesKey = crypto.privateDecrypt(
       {
         key: privateKey,
@@ -56,41 +57,52 @@ app.post("/", (req, res) => {
       Buffer.from(encrypted_aes_key, "base64")
     );
 
-    console.log("Successfully decrypted AES key");
+    // 2️⃣ Decrypt incoming payload
+    const decipher = crypto.createDecipheriv(
+      "aes-128-gcm",
+      aesKey,
+      Buffer.from(initial_vector, "base64")
+    );
 
-    // 2. Prepare Response
+    decipher.setAuthTag(Buffer.from(authentication_tag, "base64"));
+
+    let decrypted = decipher.update(
+      Buffer.from(encrypted_flow_data, "base64")
+    );
+    decrypted = Buffer.concat([decrypted, decipher.final()]);
+
+    console.log("Decrypted Request:", decrypted.toString());
+
+    // 3️⃣ Prepare response payload
     const responsePayload = JSON.stringify({
       version: "3.0",
       data: { status: "healthy" }
     });
 
-    // 3. Encrypt using Meta's IV
-    const iv = Buffer.from(initial_vector, "base64");
-    
-    const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, iv, { authTagLength: 16 });
+    // 4️⃣ Encrypt response using NEW IV
+    const responseIv = crypto.randomBytes(12);
+
+    const cipher = crypto.createCipheriv(
+      "aes-128-gcm",
+      aesKey,
+      responseIv
+    );
 
     let encrypted = cipher.update(responsePayload, "utf8");
     encrypted = Buffer.concat([encrypted, cipher.final()]);
 
     const authTag = cipher.getAuthTag();
 
-    // 4. Combine: [Encrypted Data] + [Auth Tag]
-    const signedResponse = Buffer.concat([encrypted, authTag]).toString("base64");
-
-    res.set("Content-Type", "text/plain");
-    return res.status(200).send(signedResponse);
+    // 5️⃣ Return JSON (NOT text/plain)
+    return res.status(200).json({
+      encrypted_flow_data: encrypted.toString("base64"),
+      encrypted_aes_key: encrypted_aes_key,
+      initial_vector: responseIv.toString("base64"),
+      authentication_tag: authTag.toString("base64")
+    });
 
   } catch (error) {
-    console.error("Critical Error:", error.message);
-    console.error("Error stack:", error.stack);
-    return res.status(421).send("Decryption/Encryption Mismatch");
+    console.error("Flow Error:", error);
+    return res.status(500).json({ error: "Server error" });
   }
 });
-
-// Add a health check endpoint
-app.get("/health", (req, res) => {
-  res.status(200).send("OK");
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server ready on port ${PORT}`));

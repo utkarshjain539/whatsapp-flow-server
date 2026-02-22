@@ -2,12 +2,11 @@ const express = require("express");
 const crypto = require("crypto");
 
 const app = express();
+
+// Meta sends JSON, but we must respond with text/plain (the Base64 string)
 app.use(express.json({ limit: "5mb" }));
-app.use((req, res, next) => {
-  res.setHeader("Content-Type", "application/json");
-  next();
-});
-// 🔐 Paste your PRIVATE KEY here
+
+// 🔐 Your Private Key
 const privateKey = `-----BEGIN PRIVATE KEY-----
 MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCktvBiUl5h6U4m
 5OJi+sg1/INPYgvFA7jYCYHY1m8qL6wLFQmJXt+ErePoXelHIYfOMlGhpV6N3KQf
@@ -39,116 +38,98 @@ q9pMUDrZaKcQAYgXWTz+QcawgrrPS7nrGUxaBQ3yvyiuiP5IMDW6bkXOyiocN3t9
 
 app.post("/", (req, res) => {
   try {
-    const body = req.body;
-
-    // Health check detection
-if (
-  body.encrypted_flow_data &&
-  body.encrypted_aes_key &&
-  body.initial_vector &&
-  !body.authentication_tag
-) {
-  // 🔥 Return PLAIN JSON for health check
-  return res.json({ status: "healthy" });
-}
+    const { encrypted_flow_data, encrypted_aes_key, initial_vector, authentication_tag } = req.body;
 
     /*
     |--------------------------------------------------------------------------
-    | 1️⃣ Decrypt AES Key (RSA-OAEP SHA256)
+    | 1️⃣ Decrypt the AES Key sent by Meta
     |--------------------------------------------------------------------------
     */
     const aesKey = crypto.privateDecrypt(
       {
         key: privateKey,
         padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
-        oaepHash: "sha256"
+        oaepHash: "sha256",
       },
-      Buffer.from(body.encrypted_aes_key, "base64")
+      Buffer.from(encrypted_aes_key, "base64")
     );
 
     /*
     |--------------------------------------------------------------------------
-    | 2️⃣ Decrypt Incoming Flow Data (AES-128-GCM)
+    | 2️⃣ Handle Health Check vs. Real Request
     |--------------------------------------------------------------------------
     */
-    const requestIv = Buffer.from(body.initial_vector, "base64");
-    const requestCiphertext = Buffer.from(body.encrypted_flow_data, "base64");
-    const requestAuthTag = body.authentication_tag
-      ? Buffer.from(body.authentication_tag, "base64")
-      : null;
+    let responseData;
 
-    let decryptedPayload = Buffer.from("{}");
+    if (!authentication_tag) {
+      // It's a Health Check
+      responseData = {
+        version: "3.0",
+        data: { status: "healthy" }
+      };
+    } else {
+      // It's a real user interaction - Decrypt the request
+      const requestIv = Buffer.from(initial_vector, "base64");
+      const requestCiphertext = Buffer.from(encrypted_flow_data, "base64");
+      const requestTag = Buffer.from(authentication_tag, "base64");
 
-    if (requestAuthTag) {
-      const decipher = crypto.createDecipheriv(
-        "aes-128-gcm",
-        aesKey,
-        requestIv
-      );
-      decipher.setAuthTag(requestAuthTag);
+      const decipher = crypto.createDecipheriv("aes-128-gcm", aesKey, requestIv);
+      decipher.setAuthTag(requestTag);
 
-      decryptedPayload = decipher.update(requestCiphertext);
-      decryptedPayload = Buffer.concat([
-        decryptedPayload,
-        decipher.final()
-      ]);
+      let decryptedBody = decipher.update(requestCiphertext, "base64", "utf8");
+      decryptedBody += decipher.final("utf8");
+      
+      const decryptedJson = JSON.parse(decryptedBody);
+      console.log("Decrypted Request:", decryptedJson);
+
+      // Prepare your real logic response here
+      responseData = {
+        version: "3.0",
+        screen: decryptedJson.screen,
+        data: {
+          // Your logic goes here
+          message: "Data received successfully"
+        }
+      };
     }
 
-    const requestJson = JSON.parse(decryptedPayload.toString());
+    /*
+    |--------------------------------------------------------------------------
+    | 3️⃣ Encrypt the Response (AES-128-GCM)
+    |--------------------------------------------------------------------------
+    */
+    const responsePayload = JSON.stringify(responseData);
+    const responseIv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, responseIv);
+
+    let encryptedResponse = cipher.update(responsePayload, "utf8");
+    encryptedResponse = Buffer.concat([encryptedResponse, cipher.final()]);
+    
+    const responseTag = cipher.getAuthTag();
 
     /*
     |--------------------------------------------------------------------------
-    | 3️⃣ Prepare Response Data
+    | 4️⃣ Return as Base64 String (Required by Meta)
     |--------------------------------------------------------------------------
+    | Meta expects: Base64(encrypted_data + auth_tag)
     */
-   const responsePayload = JSON.stringify({
-  version: "3.0",
-  data: {
-    status: "healthy"
-  }
-});
+    const finalB64Response = Buffer.concat([encryptedResponse, responseTag]).toString("base64");
 
-    /*
-    |--------------------------------------------------------------------------
-    | 4️⃣ Encrypt Response (AES-128-GCM)
-    |--------------------------------------------------------------------------
-    */
-    const iv = crypto.randomBytes(12);
-
-    const cipher = crypto.createCipheriv(
-      "aes-128-gcm",
-      aesKey,
-      iv
-    );
-
-    let encrypted = cipher.update(responsePayload, "utf8");
-    encrypted = Buffer.concat([encrypted, cipher.final()]);
-
-    const authTag = cipher.getAuthTag();
-
-    /*
-    |--------------------------------------------------------------------------
-    | 5️⃣ Return Encrypted Response
-    |--------------------------------------------------------------------------
-    */
-   return res.status(200).json({
-  encrypted_flow_data: encrypted.toString("base64"),
-  encrypted_aes_key: body.encrypted_aes_key,
-  initial_vector: iv.toString("base64"),
-  authentication_tag: authTag.toString("base64")
-});
+    res.set("Content-Type", "text/plain");
+    return res.status(200).send(finalB64Response);
 
   } catch (error) {
-    console.error("Server Error:", error);
-    return res.status(500).json({ error: "Server error" });
+    console.error("Encryption/Decryption Error:", error.message);
+    return res.status(500).send("Internal Server Error");
   }
 });
 
+// Simple GET for browser testing
 app.get("/", (req, res) => {
-  res.json({ status: "healthy" });
+  res.send("Server is running!");
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log("Server running on port", PORT);
+  console.log(`🚀 Meta Flow Endpoint running on port ${PORT}`);
 });

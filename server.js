@@ -4,36 +4,17 @@ const crypto = require("crypto");
 const app = express();
 app.use(express.json());
 
-// 🔐 YOUR PRIVATE KEY (Ensure it's properly formatted)
+// 🔐 YOUR PRIVATE KEY
 const privateKey = `-----BEGIN PRIVATE KEY-----
-MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDL/AORhvvKyUGU
-Qez1QQugjIh6eL/6UGMaTzoq6enw7dUEBE3mY4LfrHmREopxzyQeYdawpjD6IwYt
-ot4KOuhXUIy/kN7x+7W/BR+J9oEZGkqK0O0IjII+DsUiflpeRW3qAgflpG+7TeP2
-gWpE8XQFQ1ysrtBqWYfNnOU1hx2AlWzNzK4HQPYcbstr/kUtNTuN9GoGbBeATwEf
-025CvIYiBlQUs3l7tFF+oGyf4TN/5Qgjb5KWSzp1NvPGT5vCA26HzCQhhhYXvp5n
-HXkDxu4Xjwl6tfTgav+JnDTskoPHxGLv3hL3fro5BQH4aV4ISb7QZwrEYXpNqJUN
-e9CbaytHAgMBAAECggEAFcQJWXDu0x+QeNJkB3NuWy5DrdXOnlYPjRIhIc0d4lBu
-Z2RSL6A0qctMmXdCAIzazMch0m2ZUkeEdEApsyu/+PkmW5aIw4dZSE2ypNUBx3zv
-sUpD0KK1jwuia2DSIbcE2HBpCU73gSP5jCcZAMxG1fzvGZn5sS9md0EjkAef1UVr
-mj9cXB0llMvM8BKT239R8ACmEoJq/zfHe6mor1SlFuhxAAT8+LfSIaUQmxerGgSV
-8A8zzQdewYfZWMznwy4oUkjJxMDKqm00atLbN6HTHoq0VIpNvKAHNjchic2R5ZZy
-qveOzC0BKyn21TC/XffxqglKKTvbD9Uy5ZtDuZkSMQKBgQD0nV0Ed9zzqhOUHXxq
-Hxekje1waYIRC3Naj0mR9Q+sHtXfx2HkwNX2Gm6F0eb8pLQA4ERLmyK0rqLl1ZNU
-Rf3VpOrurefLfegv/ZlooQGx2kM1jn9T8BWRVq5nTAMetif+cv0my4C0boekvJcD
-amu5lyozVcijDtcPAZUbRjkBKQKBgQDVeog9n0vuwPCWKA+jf+xoyfjqMfbRynSu
-5SJuHRWSYwvZgaHKHX+MNZ9QVv3CFotqTNQVAK4KOioUI9S/2TqWWBg6jpPz3lYE
-GfTjcytYHxB9qku0arkVYQGB4zgrOOpSWgT9delA1WTfoDdfKp0gt4l91T7PkbCD
-WDkZ068m7wKBgFN77YYb3nXuwtXXsiQATpJjufiWmcR1cv4iTwqYZ6vnrji8lIV8
-5skihjv3wmzRTXnLEKP5I2QlAgWM2cZ2SMaEjYW+JpEFvJu8YoIaCTkI880wf/ZG
-xyWePtGUWLA/nPCzkACQjbGG05Z+os+Qn4lstQNmMJ6t7un5MUloswXZAoGBANIF
-xtu5SJ8PuqI/r4MPa6p8aiMeHNGw+LLIQuNKQdrPDu1iF6Yc90sdxiroKqc0PtzJ
-0S0IijENoDBIQBquwHEBInUZqH2YE8/dKYxL1izQAw1e6TQKeySJV05OGQiM6hsy
-7Q3fXyelyaQon9FEv2lcqCvgC/dyQdI2jZbXJ86JAoGBAJurHxwqNw2CwiPgdI7w
-kvONnwthGORVWYV41MNyblQ/M5ebpgt2eQhG6noC8Q8JmqDkp3UE07n50kcaJJAw
-WxSzeBYDCsH1dHg3/BJmPORRwKmTUlYtGp17uCm1UNmcog9merg92WMShlF4ajah
-MenuoTnhnR+OmQ4t3WqlRmFeD/K7
+YOUR_PRIVATE_KEY_HERE
 -----END PRIVATE KEY-----`;
 
+// ✅ Health Check Route (Important for Render)
+app.get("/", (req, res) => {
+  res.status(200).send("WhatsApp Flow Server Running 🚀");
+});
+
+// ✅ WhatsApp Flow Endpoint
 app.post("/", (req, res) => {
   try {
     const {
@@ -43,11 +24,16 @@ app.post("/", (req, res) => {
       authentication_tag
     } = req.body;
 
-    if (!encrypted_aes_key || !encrypted_flow_data || !initial_vector || !authentication_tag) {
+    if (
+      !encrypted_aes_key ||
+      !encrypted_flow_data ||
+      !initial_vector ||
+      !authentication_tag
+    ) {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
-    // 1️⃣ Decrypt AES key
+    // 1️⃣ Decrypt AES Key using RSA Private Key
     const aesKey = crypto.privateDecrypt(
       {
         key: privateKey,
@@ -57,7 +43,7 @@ app.post("/", (req, res) => {
       Buffer.from(encrypted_aes_key, "base64")
     );
 
-    // 2️⃣ Decrypt incoming payload
+    // 2️⃣ Decrypt Incoming Payload (AES-128-GCM)
     const decipher = crypto.createDecipheriv(
       "aes-128-gcm",
       aesKey,
@@ -69,17 +55,19 @@ app.post("/", (req, res) => {
     let decrypted = decipher.update(
       Buffer.from(encrypted_flow_data, "base64")
     );
+
     decrypted = Buffer.concat([decrypted, decipher.final()]);
 
-    console.log("Decrypted Request:", decrypted.toString());
+    console.log("✅ Decrypted Request:");
+    console.log(decrypted.toString());
 
-    // 3️⃣ Prepare response payload
+    // 3️⃣ Prepare Response Payload
     const responsePayload = JSON.stringify({
       version: "3.0",
       data: { status: "healthy" }
     });
 
-    // 4️⃣ Encrypt response using NEW IV
+    // 4️⃣ Encrypt Response Using NEW IV
     const responseIv = crypto.randomBytes(12);
 
     const cipher = crypto.createCipheriv(
@@ -93,7 +81,7 @@ app.post("/", (req, res) => {
 
     const authTag = cipher.getAuthTag();
 
-    // 5️⃣ Return JSON (NOT text/plain)
+    // 5️⃣ Return Encrypted JSON
     return res.status(200).json({
       encrypted_flow_data: encrypted.toString("base64"),
       encrypted_aes_key: encrypted_aes_key,
@@ -102,7 +90,14 @@ app.post("/", (req, res) => {
     });
 
   } catch (error) {
-    console.error("Flow Error:", error);
+    console.error("❌ Flow Error:", error);
     return res.status(500).json({ error: "Server error" });
   }
+});
+
+// ✅ REQUIRED FOR RENDER (VERY IMPORTANT)
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
 });

@@ -38,10 +38,16 @@ app.post("/", (req, res) => {
   try {
     const body = req.body;
 
-    // Health check (non-encrypted ping)
-    if (!body.encrypted_aes_key) {
-      return res.json({ status: "healthy" });
-    }
+    // Health check detection
+if (
+  body.encrypted_flow_data &&
+  body.encrypted_aes_key &&
+  body.initial_vector &&
+  !body.authentication_tag
+) {
+  // 🔥 Return PLAIN JSON for health check
+  return res.json({ status: "healthy" });
+}
 
     /*
     |--------------------------------------------------------------------------

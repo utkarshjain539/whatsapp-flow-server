@@ -4,7 +4,7 @@ const crypto = require("crypto");
 const app = express();
 app.use(express.json());
 
-// 🔐 YOUR PRIVATE KEY (Ensure the matching Public Key is saved in Meta Dashboard)
+// 🔐 YOUR PRIVATE KEY (Ensure it's properly formatted)
 const privateKey = `-----BEGIN PRIVATE KEY-----
 MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDL/AORhvvKyUGU
 Qez1QQugjIh6eL/6UGMaTzoq6enw7dUEBE3mY4LfrHmREopxzyQeYdawpjD6IwYt
@@ -17,7 +17,7 @@ Z2RSL6A0qctMmXdCAIzazMch0m2ZUkeEdEApsyu/+PkmW5aIw4dZSE2ypNUBx3zv
 sUpD0KK1jwuia2DSIbcE2HBpCU73gSP5jCcZAMxG1fzvGZn5sS9md0EjkAef1UVr
 mj9cXB0llMvM8BKT239R8ACmEoJq/zfHe6mor1SlFuhxAAT8+LfSIaUQmxerGgSV
 8A8zzQdewYfZWMznwy4oUkjJxMDKqm00atLbN6HTHoq0VIpNvKAHNjchic2R5ZZy
-qveOzC0BKyn21TC/XffxqglKKTvbD9Uy5ZtDuZkSMQKBgQD0nV0Ed9zzqhOUHxXq
+qveOzC0BKyn21TC/XffxqglKKTvbD9Uy5ZtDuZkSMQKBgQD0nV0Ed9zzqhOUHXxq
 Hxekje1waYIRC3Naj0mR9Q+sHtXfx2HkwNX2Gm6F0eb8pLQA4ERLmyK0rqLl1ZNU
 Rf3VpOrurefLfegv/ZlooQGx2kM1jn9T8BWRVq5nTAMetif+cv0my4C0boekvJcD
 amu5lyozVcijDtcPAZUbRjkBKQKBgQDVeog9n0vuwPCWKA+jf+xoyfjqMfbRynSu
@@ -31,13 +31,20 @@ xtu5SJ8PuqI/r4MPa6p8aiMeHNGw+LLIQuNKQdrPDu1iF6Yc90sdxiroKqc0PtzJ
 7Q3fXyelyaQon9FEv2lcqCvgC/dyQdI2jZbXJ86JAoGBAJurHxwqNw2CwiPgdI7w
 kvONnwthGORVWYV41MNyblQ/M5ebpgt2eQhG6noC8Q8JmqDkp3UE07n50kcaJJAw
 WxSzeBYDCsH1dHg3/BJmPORRwKmTUlYtGp17uCm1UNmcog9merg92WMShlF4ajah
-Menu
-oTnhnR+OmQ4t3WqlRmFeD/K7
+MenuoTnhnR+OmQ4t3WqlRmFeD/K7
 -----END PRIVATE KEY-----`;
 
 app.post("/", (req, res) => {
   try {
-    const { encrypted_aes_key, initial_vector } = req.body;
+    const { encrypted_aes_key, encrypted_flow_data, initial_vector } = req.body;
+    
+    // Log what we received (for debugging)
+    console.log("Received request with fields:", Object.keys(req.body));
+
+    if (!encrypted_aes_key || !initial_vector) {
+      console.error("Missing required fields");
+      return res.status(421).send("Missing encryption parameters");
+    }
 
     // 1. Decrypt AES Key
     const aesKey = crypto.privateDecrypt(
@@ -49,6 +56,8 @@ app.post("/", (req, res) => {
       Buffer.from(encrypted_aes_key, "base64")
     );
 
+    console.log("Successfully decrypted AES key");
+
     // 2. Prepare Response
     const responsePayload = JSON.stringify({
       version: "3.0",
@@ -58,7 +67,6 @@ app.post("/", (req, res) => {
     // 3. Encrypt using Meta's IV
     const iv = Buffer.from(initial_vector, "base64");
     
-    // Explicitly define authTagLength for Meta compatibility
     const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, iv, { authTagLength: 16 });
 
     let encrypted = cipher.update(responsePayload, "utf8");
@@ -74,8 +82,15 @@ app.post("/", (req, res) => {
 
   } catch (error) {
     console.error("Critical Error:", error.message);
+    console.error("Error stack:", error.stack);
     return res.status(421).send("Decryption/Encryption Mismatch");
   }
 });
 
-app.listen(3000, () => console.log("Server ready"));
+// Add a health check endpoint
+app.get("/health", (req, res) => {
+  res.status(200).send("OK");
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server ready on port ${PORT}`));

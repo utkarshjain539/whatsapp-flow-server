@@ -92,10 +92,12 @@ app.post("/", (req, res) => {
     | 3️⃣ Prepare Response Data
     |--------------------------------------------------------------------------
     */
-    const responsePayload = JSON.stringify({
-      version: "3.0",
-      data: {}
-    });
+   const responsePayload = JSON.stringify({
+  version: "3.0",
+  data: {
+    status: "healthy"
+  }
+});
 
     /*
     |--------------------------------------------------------------------------

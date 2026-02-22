@@ -123,11 +123,12 @@ app.post("/", (req, res) => {
     |--------------------------------------------------------------------------
     */
     return res.json({
-      encrypted_flow_data: encrypted.toString("base64"),
-      encrypted_aes_key: body.encrypted_aes_key,
-      initial_vector: iv.toString("base64"),
-      authentication_tag: authTag.toString("base64")
-    });
+  encrypted_flow_data: encrypted.toString("base64"),
+  encrypted_aes_key: body.encrypted_aes_key,
+  initial_vector: iv.toString("base64"),
+  authentication_tag: authTag.toString("base64"),
+  flow_token: body.flow_token
+});
 
   } catch (error) {
     console.error("Server Error:", error);

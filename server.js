@@ -54,10 +54,19 @@ decrypted = Buffer.concat([decrypted, decipher.final()]);
 
 console.log("Decrypted:", decrypted.toString());
 
-const responsePayload = JSON.stringify({
-  version: "3.0",
-  data: { status: "healthy" }
-});
+if (
+  !encrypted_aes_key ||
+  !encrypted_flow_data ||
+  !initial_vector ||
+  !authentication_tag
+) {
+  console.log("Health check or incomplete payload received");
+
+  return res.status(200).json({
+    version: "3.0",
+    data: { status: "healthy" }
+  });
+}
 
 const responseIv = crypto.randomBytes(12);
 

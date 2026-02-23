@@ -27,7 +27,7 @@ app.post("/", (req, res) => {
       return res.status(200).end();
     }
 
-    const aesKey = crypto.privateDecrypt(
+const aesKey = crypto.privateDecrypt(
   {
     key: privateKey,
     padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
@@ -36,15 +36,10 @@ app.post("/", (req, res) => {
   Buffer.from(encrypted_aes_key, "base64")
 );
 
-console.log("AES Key Length:", aesKey.length);
-
-// Must be 32
-if (aesKey.length !== 32) {
-  throw new Error("Invalid AES key length");
-}
+console.log("AES Key Length:", aesKey.length); // should be 16
 
 const decipher = crypto.createDecipheriv(
-  "aes-256-gcm",
+  "aes-128-gcm",
   aesKey,
   Buffer.from(initial_vector, "base64")
 );
@@ -67,7 +62,7 @@ const responsePayload = JSON.stringify({
 const responseIv = crypto.randomBytes(12);
 
 const cipher = crypto.createCipheriv(
-  "aes-256-gcm",
+  "aes-128-gcm",
   aesKey,
   responseIv
 );

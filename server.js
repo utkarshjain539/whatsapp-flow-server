@@ -4,22 +4,21 @@ const crypto = require("crypto");
 const app = express();
 app.use(express.json());
 
-// Load key and fix common Render formatting issues
-const getPrivateKey = () => {
-  const rawKey = process.env.PRIVATE_KEY;
-  if (!rawKey) return null;
-  
-  if (rawKey.includes("-----BEGIN")) {
-    return rawKey.replace(/\\n/g, "\n");
-  }
-  // If the key was pasted without headers, this wraps it (rare but happens)
-  return `-----BEGIN PRIVATE KEY-----\n${rawKey}\n-----END PRIVATE KEY-----`;
-};
+// 1. Safe Private Key Loading
+const rawKey = process.env.PRIVATE_KEY;
+if (!rawKey) {
+  console.error("❌ PRIVATE_KEY is not set in Render environment variables");
+  process.exit(1);
+}
+// Handles the \n newline issue common in Render/Windows
+const privateKey = rawKey.replace(/\\n/g, "\n");
 
-const privateKey = getPrivateKey();
+// --- Health Check for Browser ---
+app.get("/", (req, res) => {
+  res.status(200).send("WhatsApp Flow Server is Running!");
+});
 
-app.get("/", (req, res) => res.send("Flow Server is Live"));
-
+// --- WhatsApp Flow Endpoint ---
 app.post("/", (req, res) => {
   const {
     encrypted_aes_key,
@@ -28,16 +27,27 @@ app.post("/", (req, res) => {
     authentication_tag
   } = req.body;
 
+  // Basic guard for non-WhatsApp requests
   if (!encrypted_aes_key) {
-    return res.status(200).json({ version: "3.0", data: { status: "healthy" } });
+    return res.status(200).send("Endpoint Active");
   }
 
   try {
     let aesKey;
-    
-    // STRATEGY: Meta uses OAEP. Node defaults to sha256, but Meta often uses sha1.
-    // We try sha256 first, then fallback to sha1 if it fails.
+
+    // 2. Decrypt the AES Key with Dual-Hash Fallback
+    // This solves the 'oaep decoding error'
     try {
+      aesKey = crypto.privateDecrypt(
+        {
+          key: privateKey,
+          padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+          oaepHash: "sha1", // Meta's preferred hash for OAEP
+        },
+        Buffer.from(encrypted_aes_key, "base64")
+      );
+    } catch (sha1Error) {
+      console.log("SHA-1 failed, trying SHA-256...");
       aesKey = crypto.privateDecrypt(
         {
           key: privateKey,
@@ -46,65 +56,72 @@ app.post("/", (req, res) => {
         },
         Buffer.from(encrypted_aes_key, "base64")
       );
-    } catch (e) {
-      console.log("SHA256 failed, trying SHA1...");
-      aesKey = crypto.privateDecrypt(
-        {
-          key: privateKey,
-          padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
-          oaepHash: "sha1",
-        },
-        Buffer.from(encrypted_aes_key, "base64")
-      );
     }
 
-    // Decrypt flow data
-    const decipher = crypto.createDecipheriv(
-      "aes-128-gcm",
-      aesKey,
-      Buffer.from(initial_vector, "base64")
-    );
+    let responsePayload;
 
-    decipher.setAuthTag(Buffer.from(authentication_tag, "base64"));
+    // 3. Handle Health Check vs Actual Data
+    if (!encrypted_flow_data || !initial_vector || !authentication_tag) {
+      // If Meta pings the endpoint to verify it
+      responsePayload = {
+        version: "3.0",
+        data: { status: "healthy" }
+      };
+    } else {
+      // 4. Decrypt the actual Flow Data
+      const decipher = crypto.createDecipheriv(
+        "aes-128-gcm",
+        aesKey,
+        Buffer.from(initial_vector, "base64")
+      );
 
-    let decrypted = decipher.update(Buffer.from(encrypted_flow_data, "base64"), "base64", "utf8");
-    decrypted += decipher.final("utf8");
+      decipher.setAuthTag(Buffer.from(authentication_tag, "base64"));
 
-    const flowRequest = JSON.parse(decrypted);
+      let decrypted = decipher.update(Buffer.from(encrypted_flow_data, "base64"), "base64", "utf8");
+      decrypted += decipher.final("utf8");
 
-    // Prepare response
-    const responsePayload = JSON.stringify({
-      version: "3.0",
-      screen: flowRequest.screen || "SUCCESS",
-      data: { status: "success" }
-    });
+      const flowRequest = JSON.parse(decrypted);
+      console.log("Decrypted Flow Request:", flowRequest);
 
-    // Encrypt response
+      // --- YOUR BUSINESS LOGIC HERE ---
+      responsePayload = {
+        version: "3.0",
+        screen: flowRequest.screen,
+        data: { 
+          extension_message_response: { 
+            params: { status: "success" } 
+          } 
+        }
+      };
+    }
+
+    // 5. Encrypt the Response (Crucial for fixing 'Not Base64 Encoded' error)
     const responseIv = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, responseIv);
 
-    let encrypted = cipher.update(responsePayload, "utf8", "base64");
+    let encrypted = cipher.update(JSON.stringify(responsePayload), "utf8", "base64");
     encrypted += cipher.final("base64");
 
     const responseAuthTag = cipher.getAuthTag();
 
+    // 6. Final Mandatory JSON Structure
     return res.status(200).json({
       encrypted_flow_data: encrypted,
-      encrypted_aes_key: encrypted_aes_key,
+      encrypted_aes_key: encrypted_aes_key, // Send back the exact key received
       initial_vector: responseIv.toString("base64"),
       authentication_tag: responseAuthTag.toString("base64")
     });
 
   } catch (err) {
-    // THIS IS WHAT WE NEED TO SEE IN RENDER LOGS
-    console.error("CRITICAL FLOW ERROR:", err.message);
+    console.error("CRITICAL ENCRYPTION ERROR:", err.message);
     return res.status(500).json({ 
       error: "Encryption failure", 
-      message: err.message,
-      stack: err.stack 
+      details: err.message 
     });
   }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`🚀 Server listening on port ${PORT}`);
+});

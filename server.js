@@ -4,9 +4,20 @@ const crypto = require("crypto");
 const app = express();
 app.use(express.json());
 
+// 1. Safe Private Key Loading
 const rawKey = process.env.PRIVATE_KEY;
-const privateKey = rawKey ? rawKey.replace(/\\n/g, "\n") : null;
+if (!rawKey) {
+  console.error("❌ PRIVATE_KEY not set in Render environment variables");
+  process.exit(1);
+}
+const privateKey = rawKey.replace(/\\n/g, "\n");
 
+// --- GET ROUTE (For Browser/Render Health Check) ---
+app.get("/", (req, res) => {
+  res.status(200).send("Server is Online - WhatsApp Flow Endpoint is ready at POST /");
+});
+
+// --- POST ROUTE (For WhatsApp Flow) ---
 app.post("/", (req, res) => {
   const {
     encrypted_aes_key,
@@ -15,13 +26,14 @@ app.post("/", (req, res) => {
     authentication_tag
   } = req.body;
 
+  // If request is missing the key, it's not a valid Flow request
   if (!encrypted_aes_key) {
-    return res.status(200).send("Endpoint Active");
+    return res.status(400).send("Missing encrypted_aes_key");
   }
 
   try {
-    // 1. Decrypt the AES Key
-    // Try "sha256" first; if it fails, switch to "sha1"
+    // 2. Decrypt the AES Key
+    // WhatsApp uses RSA-OAEP. Try sha256; switch to sha1 if you get 500 errors.
     const aesKey = crypto.privateDecrypt(
       {
         key: privateKey,
@@ -33,13 +45,14 @@ app.post("/", (req, res) => {
 
     let responsePayload;
 
-    // 2. Determine if it's a health check or a data request
+    // 3. Handle Health Check vs Actual Data
     if (!encrypted_flow_data || !initial_vector || !authentication_tag) {
       responsePayload = {
         version: "3.0",
         data: { status: "healthy" }
       };
     } else {
+      // Decrypt the incoming Flow data
       const decipher = crypto.createDecipheriv(
         "aes-128-gcm",
         aesKey,
@@ -52,38 +65,32 @@ app.post("/", (req, res) => {
       decrypted += decipher.final("utf8");
 
       const flowRequest = JSON.parse(decrypted);
-      
-      // Default response structure
+      console.log("Decrypted Data:", flowRequest);
+
+      // Your Logic Here
       responsePayload = {
         version: "3.0",
         screen: flowRequest.screen,
-        data: { acknowledged: true }
+        data: { success: true }
       };
     }
 
-    // 3. Encrypt the Response
-    // IMPORTANT: IV must be 12 bytes for aes-128-gcm
-    const responseIv = crypto.randomBytes(12); 
+    // 4. Encrypt the Response
+    const responseIv = crypto.randomBytes(12); // Must be 12 bytes
     const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, responseIv);
 
-    const stringifiedPayload = JSON.stringify(responsePayload);
-    
-    let encrypted = cipher.update(stringifiedPayload, "utf8", "base64");
+    let encrypted = cipher.update(JSON.stringify(responsePayload), "utf8", "base64");
     encrypted += cipher.final("base64");
 
-    // Auth Tag is 16 bytes by default in Node.js for GCM
     const responseAuthTag = cipher.getAuthTag();
 
-    // 4. Construct the final response
-    // Ensure we return the EXACT encrypted_aes_key string from the request
-    const finalResponse = {
+    // 5. Send Response back to Meta
+    return res.status(200).json({
       encrypted_flow_data: encrypted,
-      encrypted_aes_key: encrypted_aes_key, 
+      encrypted_aes_key: encrypted_aes_key, // Return the same key received
       initial_vector: responseIv.toString("base64"),
       authentication_tag: responseAuthTag.toString("base64")
-    };
-
-    return res.status(200).json(finalResponse);
+    });
 
   } catch (err) {
     console.error("Crypto Error:", err.message);
@@ -91,4 +98,7 @@ app.post("/", (req, res) => {
   }
 });
 
-app.listen(process.env.PORT || 3000);
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});

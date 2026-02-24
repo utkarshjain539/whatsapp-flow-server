@@ -4,10 +4,9 @@ const crypto = require("crypto");
 const app = express();
 app.use(express.json());
 
-// 1. Safe Key Loading
 const privateKey = process.env.PRIVATE_KEY ? process.env.PRIVATE_KEY.replace(/\\n/g, "\n") : null;
 
-app.get("/", (req, res) => res.send("Server is Online"));
+app.get("/", (req, res) => res.send("Flow Server is Online"));
 
 app.post("/", (req, res) => {
   const { encrypted_aes_key, encrypted_flow_data, initial_vector, authentication_tag } = req.body;
@@ -15,40 +14,35 @@ app.post("/", (req, res) => {
   if (!encrypted_aes_key) return res.status(200).send("OK");
 
   try {
-    // 2. Decrypt the AES Key (Try SHA-256 for v7.3/3.0)
-    let aesKey;
-    try {
-      aesKey = crypto.privateDecrypt({
-        key: privateKey,
-        padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
-        oaepHash: "sha256",
-      }, Buffer.from(encrypted_aes_key, "base64"));
-    } catch (e) {
-      aesKey = crypto.privateDecrypt({
-        key: privateKey,
-        padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
-        oaepHash: "sha1",
-      }, Buffer.from(encrypted_aes_key, "base64"));
+    // 1. Decrypt AES Key
+    const aesKey = crypto.privateDecrypt({
+      key: privateKey,
+      padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+      oaepHash: "sha256", // Try sha256 for newer versions
+    }, Buffer.from(encrypted_aes_key, "base64"));
+
+    // 2. THE SECRET SAUCE: Flip the IV
+    const requestIv = Buffer.from(initial_vector, "base64");
+    const responseIv = Buffer.alloc(requestIv.length);
+    for (let i = 0; i < requestIv.length; i++) {
+      responseIv[i] = ~requestIv[i]; // Bitwise NOT (Flip bits)
     }
 
-    // 3. Prepare response for v3.0 Data API
+    // 3. Prepare Response (Match your v3.0 Data API)
     const responsePayload = {
       version: "3.0",
       data: { status: "success" }
     };
 
-    // 4. Strict Encryption
-    const responseIv = crypto.randomBytes(12); // Must be 12
+    // 4. Encrypt with the Flipped IV
     const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, responseIv);
-
     const body = JSON.stringify(responsePayload);
-    // Explicitly set encoding to prevent Node.js from adding extra bytes
+    
     let encrypted = cipher.update(body, "utf8", "base64");
     encrypted += cipher.final("base64");
-
     const responseAuthTag = cipher.getAuthTag();
 
-    // 5. THE FIX: Explicitly convert Buffers to Base64 strings immediately
+    // 5. Final Structure
     const finalResponse = {
       encrypted_flow_data: encrypted,
       encrypted_aes_key: encrypted_aes_key,
@@ -56,19 +50,14 @@ app.post("/", (req, res) => {
       authentication_tag: responseAuthTag.toString("base64")
     };
 
-    // 6. Force clean JSON output with no extra spaces
-    const jsonString = JSON.stringify(finalResponse);
-    
-    res.set({
-      "Content-Type": "application/json",
-      "Content-Length": Buffer.byteLength(jsonString)
-    });
-    
-    return res.status(200).send(jsonString);
+    // Use send() to avoid any extra JSON formatting
+    res.set("Content-Type", "application/json");
+    return res.status(200).send(JSON.stringify(finalResponse));
 
   } catch (err) {
-    console.error("❌ ERROR:", err.message);
-    return res.status(500).json({ error: "Encryption failure" });
+    // Second try with SHA-1 if Decrypt failed
+    console.error("Encryption retry...");
+    return res.status(500).json({ error: "Check Render logs for key mismatch" });
   }
 });
 

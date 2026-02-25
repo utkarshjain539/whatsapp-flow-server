@@ -21,7 +21,7 @@ app.post("/", (req, res) => {
       oaepHash: "sha256",
     }, Buffer.from(encrypted_aes_key, "base64"));
 
-    // 2. Flip IV (Mandatory for 3.0)
+    // 2. Flip IV bits (Mandatory for Data API 3.0)
     const requestIv = Buffer.from(initial_vector, "base64");
     const responseIv = Buffer.alloc(requestIv.length);
     for (let i = 0; i < requestIv.length; i++) {
@@ -31,14 +31,14 @@ app.post("/", (req, res) => {
     // 3. Prepare Payload
     let responsePayload;
 
-    // Check if this is a health check (ping) or actual data exchange
-    // Meta's health check usually doesn't include flow_data or has a specific 'ping' action
+    // IMPORTANT: If encrypted_flow_data is missing, it's a health check.
+    // Meta expects ONLY the data object with status: active.
     if (!encrypted_flow_data) {
         responsePayload = JSON.stringify({
-            data: { status: "active" } // THIS IS THE EXPECTED RESULT
+            data: { status: "active" }
         });
     } else {
-        // This is a real user interaction
+        // Real user interaction - provide the screen data
         responsePayload = JSON.stringify({
             version: "3.0",
             screen: "APPOINTMENT",
@@ -60,11 +60,11 @@ app.post("/", (req, res) => {
     let encrypted = cipher.update(responsePayload, "utf8");
     encrypted = Buffer.concat([encrypted, cipher.final()]);
     
-    // 5. Append Tag to Ciphertext (3.0 spec)
+    // 5. Append Tag to Ciphertext (Data API 3.0 Requirement)
     const authTag = cipher.getAuthTag();
     const finalBuffer = Buffer.concat([encrypted, authTag]);
 
-    // 6. Return Base64
+    // 6. Return Base64 of combined buffer
     res.set("Content-Type", "text/plain");
     return res.status(200).send(finalBuffer.toString("base64"));
 

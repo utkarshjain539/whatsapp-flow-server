@@ -10,7 +10,7 @@ const privateKey = process.env.PRIVATE_KEY ? process.env.PRIVATE_KEY.replace(/\\
 
 // Browser GET request fix
 app.get("/", (req, res) => {
-    res.send("🚀 WhatsApp Flow Server is Online and waiting for POST requests!");
+    res.send("🚀 WhatsApp Flow Server is Online!");
 });
 
 app.post("/", async (req, res) => {
@@ -20,7 +20,7 @@ app.post("/", async (req, res) => {
     if (!encrypted_aes_key) return res.status(200).send("OK");
 
     try {
-        // 2. Decrypt AES Key - Explicitly using SHA-256 for WhatsApp compliance
+        // 2. Decrypt AES Key using RSA-OAEP with SHA-256 (WhatsApp Requirement)
         const aesKey = crypto.privateDecrypt({
             key: privateKey,
             padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
@@ -36,38 +36,45 @@ app.post("/", async (req, res) => {
 
         let responsePayloadObj;
 
-        // 4. Logic Gate: Health Check vs. Real Interaction
+        // 4. Decrypt incoming Flow Data if it exists
         if (!encrypted_flow_data || !authentication_tag) {
-    // This is for background health pings ONLY
-    responsePayloadObj = {
-        data: { status: "active" }
-    };
-} else {
-    // This handles the real user opening the flow (INIT)
-    const flowRequest = JSON.parse(decrypted);
-    const { action, flow_token } = flowRequest;
+            // Background Health Check Response
+            responsePayloadObj = {
+                data: { status: "active" }
+            };
+        } else {
+            const decipher = crypto.createDecipheriv("aes-128-gcm", aesKey, requestIv);
+            decipher.setAuthTag(Buffer.from(authentication_tag, "base64"));
+            
+            let decrypted = decipher.update(Buffer.from(encrypted_flow_data, "base64"), "base64", "utf8");
+            decrypted += decipher.final("utf8");
+            
+            const flowRequest = JSON.parse(decrypted);
+            const { action, flow_token } = flowRequest;
 
-    // FETCH DATA LOGIC
-    const mobile = flow_token || "8488861504";
-    const apiUrl = `https://utkarshjain.com/abtypchatbot/get_member.php?mobile=${mobile}`;
-    
-    let member = { name: "", dob: "", mobile: mobile };
-    try {
-        const apiRes = await axios.get(apiUrl);
-        if (apiRes.data) member = apiRes.data;
-    } catch (e) { console.error("API Error"); }
+            // Fetch live member data from PHP API
+            const mobile = flow_token || "8488861504";
+            const apiUrl = `https://utkarshjain.com/abtypchatbot/get_member.php?mobile=${mobile}`;
+            
+            let member = { name: "", dob: "", mobile: mobile };
+            try {
+                const apiRes = await axios.get(apiUrl);
+                if (apiRes.data) member = apiRes.data;
+            } catch (e) {
+                console.error("External API Error:", e.message);
+            }
 
-    // THE CRITICAL PART: You MUST include "screen" here
-    responsePayloadObj = {
-        version: "3.0",
-        screen: "APPOINTMENT", // This must match your Screen ID in the Flow JSON
-        data: {
-            prefilled_name: member.name || "",
-            prefilled_dob: member.dob || "",
-            prefilled_mobile: Number(member.mobile || mobile)
+            // 5. THE FIX: The response MUST have 'version', 'screen', and 'data' at the top level
+            responsePayloadObj = {
+                version: "3.0",
+                screen: "APPOINTMENT", // MUST match your Flow JSON Screen ID exactly
+                data: {
+                    prefilled_name: member.name || "",
+                    prefilled_dob: member.dob || "",
+                    prefilled_mobile: Number(member.mobile || mobile)
+                }
+            };
         }
-    };
-}
 
         // 6. Encrypt Response (Data API 3.0 Spec)
         const responsePayload = JSON.stringify(responsePayloadObj);
@@ -75,6 +82,7 @@ app.post("/", async (req, res) => {
         let encrypted = cipher.update(responsePayload, "utf8");
         encrypted = Buffer.concat([encrypted, cipher.final()]);
         
+        // Append Auth Tag to the end of the ciphertext
         const finalBuffer = Buffer.concat([encrypted, cipher.getAuthTag()]);
 
         res.set("Content-Type", "text/plain");
@@ -82,7 +90,7 @@ app.post("/", async (req, res) => {
 
     } catch (err) {
         console.error("❌ Encryption Error:", err.message);
-        // Status 421 tells Meta to download your new public key if there is a mismatch
+        // Status 421 helps sync keys if they were recently changed
         return res.status(421).send("Key Refresh Required"); 
     }
 });

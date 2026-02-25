@@ -29,30 +29,45 @@ app.post("/", (req, res) => {
     }
 
     // 3. Prepare Payload
+    // 3. Prepare Payload based on the "action"
     let responsePayload;
 
-    // IMPORTANT: If encrypted_flow_data is missing, it's a health check.
-    // Meta expects ONLY the data object with status: active.
     if (!encrypted_flow_data) {
-        responsePayload = JSON.stringify({
-            data: { status: "active" }
-        });
+        // HEALTH CHECK
+        responsePayload = { data: { status: "active" } };
     } else {
-        // Real user interaction - provide the screen data
-        responsePayload = JSON.stringify({
-            version: "3.0",
-            screen: "APPOINTMENT",
-            data: {
-                department: [
-                    { id: "gujarat", title: "Gujarat" },
-                    { id: "maharashtra", title: "Maharashtra" }
-                ],
-                location: [
-                    { id: "ahmedabad", title: "Ahmedabad" }
-                ],
-                is_location_enabled: true
-            }
-        });
+        const decryptedBody = JSON.parse(decrypted); // The user's selection
+        const { action, data } = decryptedBody;
+
+        if (action === "INIT") {
+            // INITIAL LOAD: Send the departments
+            responsePayload = {
+                version: "3.0",
+                screen: "APPOINTMENT",
+                data: {
+                    department: [
+                        { id: "gujarat", title: "Gujarat" },
+                        { id: "maharashtra", title: "Maharashtra" }
+                    ],
+                    location: [], // Empty until department is picked
+                    is_location_enabled: false
+                }
+            };
+        } else if (data && data.trigger === "department_selected") {
+            // DATA EXCHANGE: User picked a state, now send the cities
+            // In a real app, you'd fetch these from your Google Sheet or Database
+            responsePayload = {
+                version: "3.0",
+                screen: "APPOINTMENT",
+                data: {
+                    location: [
+                        { id: "ahmedabad", title: "Ahmedabad" },
+                        { id: "surat", title: "Surat" }
+                    ],
+                    is_location_enabled: true
+                }
+            };
+        }
     }
 
     // 4. Encrypt using AES-GCM

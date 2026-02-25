@@ -14,6 +14,9 @@ const formattedKey = privateKeyInput.includes("BEGIN PRIVATE KEY")
 app.get("/", (req, res) => res.send("🚀 Flow Server is Online!"));
 
 app.post("/", async (req, res) => {
+    console.log("📢 RECEIVED A REQUEST FROM META!"); // Add this line
+    const { encrypted_aes_key, encrypted_flow_data, initial_vector, authentication_tag } = req.body;
+    console.log("Body Keys:", Object.keys(req.body)); // This will show what Meta sent
     const { encrypted_aes_key, encrypted_flow_data, initial_vector, authentication_tag } = req.body;
 
     if (!encrypted_aes_key) return res.status(200).send("OK");

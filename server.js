@@ -4,64 +4,63 @@ const crypto = require("crypto");
 const app = express();
 app.use(express.json());
 
-// Load key from Render
+// Ensure the private key is loaded correctly from Render
 const privateKey = process.env.PRIVATE_KEY ? process.env.PRIVATE_KEY.replace(/\\n/g, "\n") : null;
 
-app.get("/", (req, res) => res.send("Flow Server is Online"));
+app.get("/", (req, res) => res.send("Server is Online"));
 
 app.post("/", (req, res) => {
   const { encrypted_aes_key, encrypted_flow_data, initial_vector, authentication_tag } = req.body;
 
-  // Health check ping from Meta
   if (!encrypted_aes_key) return res.status(200).send("OK");
 
   try {
-    // 1. Decrypt AES Key using SHA-256 (Required for latest Graph versions)
+    // 1. Decrypt the AES key
     const aesKey = crypto.privateDecrypt({
       key: privateKey,
       padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
       oaepHash: "sha256",
     }, Buffer.from(encrypted_aes_key, "base64"));
 
-    // 2. Prepare Payload targeting your specific screen "APPOINTMENT"
-    const responsePayload = JSON.stringify({
+    // 2. Prepare the Payload (Minified, No Spaces)
+    const responsePayload = {
       version: "3.0",
-      screen: "APPOINTMENT", // <--- MATCHES YOUR SCREEN ID
-      data: {
-        status: "success"
-      }
-    });
+      screen: "APPOINTMENT",
+      data: { status: "success" }
+    };
 
-    // 3. Encrypt the response
+    // 3. Encrypt the Response
     const responseIv = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, responseIv);
-    
-    let encrypted = cipher.update(responsePayload, "utf8", "base64");
-    encrypted += cipher.final("base64");
-    const responseAuthTag = cipher.getAuthTag().toString("base64");
 
-    // 4. Construct the standard response object
-    const finalResponseObj = {
+    // We stringify the payload with NO spaces
+    const bodyString = JSON.stringify(responsePayload);
+    let encrypted = cipher.update(bodyString, "utf8", "base64");
+    encrypted += cipher.final("base64");
+
+    const responseAuthTag = cipher.getAuthTag();
+
+    // 4. Construct the Final Object
+    const finalResponse = {
       encrypted_flow_data: encrypted,
       encrypted_aes_key: encrypted_aes_key,
       initial_vector: responseIv.toString("base64"),
-      authentication_tag: responseAuthTag
+      authentication_tag: responseAuthTag.toString("base64")
     };
 
-    // 5. THE "BASE64" FIX: Encode the entire JSON string as Base64
-    const finalString = JSON.stringify(finalResponseObj);
-    const base64Body = Buffer.from(finalString).toString("base64");
+    // 5. THE CRITICAL CHANGE: Return the JSON, then Base64 encode the WHOLE THING
+    // Meta requires the response to be a single Base64 string of the JSON object.
+    const finalJsonString = JSON.stringify(finalResponse);
+    const base64ResponseBody = Buffer.from(finalJsonString).toString("base64");
 
-    // 6. Return as plain text per Meta requirements for full-body Base64
+    // 6. Set Content-Type to text/plain so Meta doesn't try to parse it as JSON first
     res.set("Content-Type", "text/plain");
-    return res.status(200).send(base64Body);
+    return res.status(200).send(base64ResponseBody);
 
   } catch (err) {
-    console.error("❌ ERROR:", err.message);
-    // If decryption fails, it's likely a SHA-256 vs SHA-1 issue or key mismatch
+    console.error("Encryption failure:", err.message);
     return res.status(500).json({ error: "Encryption failure" });
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Listening on port ${PORT}`));
+app.listen(process.env.PORT || 3000);

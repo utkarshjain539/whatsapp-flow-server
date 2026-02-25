@@ -4,8 +4,7 @@ const crypto = require("crypto");
 const app = express();
 app.use(express.json());
 
-const rawKey = process.env.PRIVATE_KEY;
-const privateKey = rawKey ? rawKey.replace(/\\n/g, "\n") : null;
+const privateKey = process.env.PRIVATE_KEY ? process.env.PRIVATE_KEY.replace(/\\n/g, "\n") : null;
 
 app.get("/", (req, res) => res.send("Server is Online"));
 
@@ -31,32 +30,35 @@ app.post("/", (req, res) => {
       }, Buffer.from(encrypted_aes_key, "base64"));
     }
 
-    // 2. Prepare Response
+    // 2. Prepare Payload
     const responsePayload = {
       version: "3.0",
       data: { status: "success" }
     };
 
-    // 3. ENCRYPTION - STRICT 12-BYTE IV
-    const responseIv = crypto.randomBytes(12); // MUST BE 12, NOT 16
+    // 3. Encrypt
+    const responseIv = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, responseIv);
-
-    const body = JSON.stringify(responsePayload);
-    let encrypted = cipher.update(body, "utf8", "base64");
+    
+    let encrypted = cipher.update(JSON.stringify(responsePayload), "utf8", "base64");
     encrypted += cipher.final("base64");
-
     const responseAuthTag = cipher.getAuthTag();
 
-    // 4. Construct Final Response
-    const finalResponse = {
+    // 4. Construct the JSON Object
+    const finalJsonResponse = {
       encrypted_flow_data: encrypted,
       encrypted_aes_key: encrypted_aes_key,
       initial_vector: responseIv.toString("base64"),
       authentication_tag: responseAuthTag.toString("base64")
     };
 
-    res.set("Content-Type", "application/json");
-    return res.status(200).send(JSON.stringify(finalResponse));
+    // 5. THE CRITICAL STEP: Base64 encode the WHOLE JSON string
+    const jsonString = JSON.stringify(finalJsonResponse);
+    const base64Response = Buffer.from(jsonString).toString("base64");
+
+    // 6. Return ONLY the Base64 string
+    res.set("Content-Type", "text/plain"); // Meta expects plain text when it's full Base64
+    return res.status(200).send(base64Response);
 
   } catch (err) {
     console.error("❌ ERROR:", err.message);

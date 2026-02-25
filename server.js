@@ -50,15 +50,17 @@ app.post("/", async (req, res) => {
                     if (apiRes.data) memberData = apiRes.data;
                 } catch (e) { console.error("API Error:", e.message); }
 
-                responsePayload = JSON.stringify({
-                    version: "3.0",
-                    screen: "APPOINTMENT",
-                    data: {
-                        prefilled_name: memberData.name || "",
-                        prefilled_dob: memberData.dob || "",
-                        prefilled_mobile: memberData.mobile || mobileNumber
-                    }
-                });
+                // ... inside your INIT action block ...
+responsePayload = JSON.stringify({
+    version: "3.0",
+    screen: "APPOINTMENT",
+    data: {
+        prefilled_name: memberData.name || "",
+        prefilled_dob: memberData.dob || "",
+        // Use Number() to ensure it is not sent as a string
+        prefilled_mobile: Number(memberData.mobile || mobileNumber)
+    }
+});
             } else {
                 responsePayload = JSON.stringify({ version: "3.0", data: { status: "success" } });
             }

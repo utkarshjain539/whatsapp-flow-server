@@ -5,9 +5,13 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
-const privateKey = process.env.PRIVATE_KEY ? process.env.PRIVATE_KEY.replace(/\\n/g, "\n") : null;
+// FIXED: Advanced Private Key Loader to handle Render formatting issues
+const privateKeyInput = process.env.PRIVATE_KEY || "";
+const formattedKey = privateKeyInput.includes("BEGIN PRIVATE KEY") 
+    ? privateKeyInput.replace(/\\n/g, "\n") 
+    : `-----BEGIN PRIVATE KEY-----\n${privateKeyInput}\n-----END PRIVATE KEY-----`;
 
-app.get("/", (req, res) => res.send("🚀 Flow Server is Live"));
+app.get("/", (req, res) => res.send("🚀 Flow Server is Online!"));
 
 app.post("/", async (req, res) => {
     const { encrypted_aes_key, encrypted_flow_data, initial_vector, authentication_tag } = req.body;
@@ -16,7 +20,7 @@ app.post("/", async (req, res) => {
 
     try {
         const aesKey = crypto.privateDecrypt({
-            key: privateKey,
+            key: formattedKey,
             padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
             oaepHash: "sha256", 
         }, Buffer.from(encrypted_aes_key, "base64"));
@@ -40,21 +44,19 @@ app.post("/", async (req, res) => {
             
             const flowRequest = JSON.parse(decrypted);
             
-            // FIX: Access flow_token from the flowRequest object
+            // Fix: Use the flow_token passed from your curl command
             const mobile = flowRequest.flow_token || "8488861504";
             const apiUrl = `https://utkarshjain.com/abtypchatbot/get_member.php?mobile=${mobile}`;
 
-            let member = { name: "", dob: "", mobile: mobile };
+            let member = { name: "Guest", dob: "1990-01-01", mobile: mobile };
 
             try {
-                const apiRes = await axios.get(apiUrl);
+                const apiRes = await axios.get(apiUrl, { timeout: 3000 });
                 const apiData = apiRes.data;
-                console.log("API RAW DATA:", apiData); // Check this in Render Logs!
 
                 if (apiData && apiData.Status === "success") {
                     member.name = apiData.MemberName;
-
-                    // Convert DD-MM-YYYY to YYYY-MM-DD
+                    // Date Format Conversion: DD-MM-YYYY -> YYYY-MM-DD
                     if (apiData.dob && apiData.dob.includes("-")) {
                         const parts = apiData.dob.split("-");
                         member.dob = `${parts[2]}-${parts[1]}-${parts[0]}`; 
@@ -62,9 +64,10 @@ app.post("/", async (req, res) => {
                     member.mobile = apiData.MobileNo;
                 }
             } catch (e) {
-                console.error("PHP API Fetch Error");
+                console.log("API Fetch failed, using safety defaults.");
             }
 
+            // REQUIRED: Every successful response must have 'version' and 'screen'
             responsePayloadObj = {
                 version: "3.0",
                 screen: "APPOINTMENT",
@@ -86,7 +89,7 @@ app.post("/", async (req, res) => {
         return res.status(200).send(finalBuffer.toString("base64"));
 
     } catch (err) {
-        console.error("❌ Handshake Error:", err.message);
+        console.error("❌ Handshake failure:", err.message);
         return res.status(421).send("Key Refresh Required"); 
     }
 });

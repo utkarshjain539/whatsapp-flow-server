@@ -48,7 +48,7 @@ app.post("/", async (req, res) => {
             const { action, flow_token } = flowRequest;
 
             // 4. PREFILL LOGIC: Fetch from your PHP API
-            const mobile = flow_token || "8488861504";
+            const mobile = "8488861504";
             const apiUrl = `https://utkarshjain.com/abtypchatbot/get_member.php?mobile=${mobile}`;
             
             let member = { name: "", dob: "", mobile: mobile };

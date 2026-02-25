@@ -65,14 +65,15 @@ app.post("/", async (req, res) => {
             // 5. THE CRITICAL FIX: Response MUST have 'version' and 'screen' at the top level
             // This satisfies Interactive Mode requirements
             responsePayloadObj = {
-                version: "3.0",
-                screen: "APPOINTMENT", 
-                data: {
-                    prefilled_name: member.name || "Unknown",
-                    prefilled_dob: member.dob || "1900-01-01",
-                    prefilled_mobile: Number(member.mobile || mobile) // Must be Number for type-match
-                }
-            };
+    version: "3.0",
+    screen: "APPOINTMENT",
+    data: {
+        // These keys must match the Flow JSON "data" section exactly
+        prefilled_name: member.name || "N/A", 
+        prefilled_dob: member.dob || "N/A",
+        prefilled_mobile: Number(member.mobile)
+    }
+};
         }
 
         // 6. Encrypt and Send

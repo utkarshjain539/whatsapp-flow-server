@@ -38,44 +38,36 @@ app.post("/", async (req, res) => {
 
         // 4. Logic Gate: Health Check vs. Real Interaction
         if (!encrypted_flow_data || !authentication_tag) {
-            // Simple Health Check Response
-            responsePayloadObj = {
-                data: { status: "active" }
-            };
-        } else {
-            // Decrypt incoming Flow Data
-            const decipher = crypto.createDecipheriv("aes-128-gcm", aesKey, requestIv);
-            decipher.setAuthTag(Buffer.from(authentication_tag, "base64"));
-            
-            let decrypted = decipher.update(Buffer.from(encrypted_flow_data, "base64"), "base64", "utf8");
-            decrypted += decipher.final("utf8");
-            
-            const flowRequest = JSON.parse(decrypted);
-            const { action, flow_token } = flowRequest;
+    // This is for background health pings ONLY
+    responsePayloadObj = {
+        data: { status: "active" }
+    };
+} else {
+    // This handles the real user opening the flow (INIT)
+    const flowRequest = JSON.parse(decrypted);
+    const { action, flow_token } = flowRequest;
 
-            // Fetch live member data from PHP API
-            const mobile = flow_token || "8488861504";
-            const apiUrl = `https://utkarshjain.com/abtypchatbot/get_member.php?mobile=${mobile}`;
-            
-            let member = { name: "", dob: "", mobile: mobile };
-            try {
-                const apiRes = await axios.get(apiUrl);
-                if (apiRes.data) member = apiRes.data;
-            } catch (e) {
-                console.error("External API Error:", e.message);
-            }
+    // FETCH DATA LOGIC
+    const mobile = flow_token || "8488861504";
+    const apiUrl = `https://utkarshjain.com/abtypchatbot/get_member.php?mobile=${mobile}`;
+    
+    let member = { name: "", dob: "", mobile: mobile };
+    try {
+        const apiRes = await axios.get(apiUrl);
+        if (apiRes.data) member = apiRes.data;
+    } catch (e) { console.error("API Error"); }
 
-            // 5. THIS IS THE FIX: Return 'screen' and 'version' for INIT/Interactive Mode
-            responsePayloadObj = {
-                version: "3.0",
-                screen: "APPOINTMENT",
-                data: {
-                    prefilled_name: member.name || "",
-                    prefilled_dob: member.dob || "",
-                    prefilled_mobile: Number(member.mobile || mobile)
-                }
-            };
+    // THE CRITICAL PART: You MUST include "screen" here
+    responsePayloadObj = {
+        version: "3.0",
+        screen: "APPOINTMENT", // This must match your Screen ID in the Flow JSON
+        data: {
+            prefilled_name: member.name || "",
+            prefilled_dob: member.dob || "",
+            prefilled_mobile: Number(member.mobile || mobile)
         }
+    };
+}
 
         // 6. Encrypt Response (Data API 3.0 Spec)
         const responsePayload = JSON.stringify(responsePayloadObj);

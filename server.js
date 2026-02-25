@@ -39,29 +39,43 @@ app.post("/", async (req, res) => {
             decrypted += decipher.final("utf8");
             
             const flowRequest = JSON.parse(decrypted);
-            const mobile = flowRequest.flow_token || "8488861504";
+            const mobile = flow_token || "8488861504";
+const apiUrl = `https://utkarshjain.com/abtypchatbot/get_member.php?mobile=${mobile}`;
 
-            // Fallback data in case PHP fails
-            let member = { name: "Guest", dob: "1990-01-01", mobile: mobile };
-            
-            try {
-                // PHP API fetch with a 2-second timeout to prevent Flow timeout errors
-                const apiRes = await axios.get(`https://utkarshjain.com/abtypchatbot/get_member.php?mobile=${mobile}`, { timeout: 2000 });
-                if (apiRes.data) member = apiRes.data;
-            } catch (e) { 
-                console.log("Using safety fallback data."); 
-            }
+let member = { name: "", dob: "", mobile: mobile };
 
-            // REQUIRED STRUCTURE: version and screen must be top-level
-            responsePayloadObj = {
-                version: "3.0",
-                screen: "APPOINTMENT", 
-                data: {
-                    prefilled_name: String(member.name || ""),
-                    prefilled_dob: String(member.dob || ""),
-                    prefilled_mobile: Number(member.mobile || mobile)
-                }
-            };
+try {
+    const apiRes = await axios.get(apiUrl);
+    const apiData = apiRes.data;
+
+    if (apiData && apiData.Status === "success") {
+        // 1. Map "MemberName" to our "prefilled_name"
+        member.name = apiData.MemberName;
+
+        // 2. Fix Date Format: Change "15-10-1992" to "1992-10-15"
+        if (apiData.dob && apiData.dob.includes("-")) {
+            const parts = apiData.dob.split("-");
+            member.dob = `${parts[2]}-${parts[1]}-${parts[0]}`; 
+        }
+
+        // 3. Map "MobileNo" and remove "91" if necessary
+        member.mobile = apiData.MobileNo;
+    }
+} catch (e) {
+    console.error("PHP API Fetch Error");
+}
+
+// 4. Send the corrected keys to the Flow
+responsePayloadObj = {
+    version: "3.0",
+    screen: "APPOINTMENT",
+    data: {
+        prefilled_name: member.name || "",
+        prefilled_dob: member.dob || "",
+        // Convert to Number and handle the "91" prefix if your Flow expects 10 digits
+        prefilled_mobile: Number(member.mobile) 
+    }
+};
         }
 
         const responsePayload = JSON.stringify(responsePayloadObj);

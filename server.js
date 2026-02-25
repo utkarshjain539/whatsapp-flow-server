@@ -5,7 +5,13 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
+// Load Private Key from Render Env Variables
 const privateKey = process.env.PRIVATE_KEY ? process.env.PRIVATE_KEY.replace(/\\n/g, "\n") : null;
+
+// FIX: Handle browser GET requests
+app.get("/", (req, res) => {
+    res.send("🚀 WhatsApp Flow Server is running and waiting for POST requests!");
+});
 
 app.post("/", async (req, res) => {
     const { encrypted_aes_key, encrypted_flow_data, initial_vector, authentication_tag } = req.body;
@@ -38,7 +44,6 @@ app.post("/", async (req, res) => {
             const flowRequest = JSON.parse(decrypted);
             const { action, flow_token } = flowRequest;
 
-            // Use the flow_token (passed from your curl) as the mobile number
             const mobileNumber = flow_token || "8488861504";
 
             if (action === "INIT" || action === "ping") {

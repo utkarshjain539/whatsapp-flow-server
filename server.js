@@ -4,10 +4,9 @@ const crypto = require("crypto");
 const app = express();
 app.use(express.json());
 
-// Ensure the private key is loaded correctly from Render
 const privateKey = process.env.PRIVATE_KEY ? process.env.PRIVATE_KEY.replace(/\\n/g, "\n") : null;
 
-app.get("/", (req, res) => res.send("Server is Online"));
+app.get("/", (req, res) => res.send("Flow Server is Online"));
 
 app.post("/", (req, res) => {
   const { encrypted_aes_key, encrypted_flow_data, initial_vector, authentication_tag } = req.body;
@@ -15,51 +14,53 @@ app.post("/", (req, res) => {
   if (!encrypted_aes_key) return res.status(200).send("OK");
 
   try {
-    // 1. Decrypt the AES key
+    // 1. Decrypt AES Key
     const aesKey = crypto.privateDecrypt({
       key: privateKey,
       padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
       oaepHash: "sha256",
     }, Buffer.from(encrypted_aes_key, "base64"));
 
-    // 2. Prepare the Payload (Minified, No Spaces)
-    const responsePayload = {
+    // 2. Prepare IV for response (Bitwise NOT of request IV)
+    const requestIv = Buffer.from(initial_vector, "base64");
+    const responseIv = Buffer.alloc(requestIv.length);
+    for (let i = 0; i < requestIv.length; i++) {
+      responseIv[i] = ~requestIv[i];
+    }
+
+    // 3. Prepare Response Payload for your specific JSON structure
+    const responsePayload = JSON.stringify({
       version: "3.0",
       screen: "APPOINTMENT",
-      data: { status: "success" }
-    };
+      data: {
+        // We include the initial data your Flow JSON expects
+        department: [
+          { id: "gujarat", title: "Gujarat" },
+          { id: "maharashtra", title: "Maharashtra" }
+        ],
+        location: [
+          { id: "ahmedabad", title: "Ahmedabad" }
+        ],
+        is_location_enabled: true
+      }
+    });
 
-    // 3. Encrypt the Response
-    const responseIv = crypto.randomBytes(12);
+    // 4. Encrypt using AES-GCM
     const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, responseIv);
+    let encrypted = cipher.update(responsePayload, "utf8");
+    encrypted = Buffer.concat([encrypted, cipher.final()]);
+    
+    // 5. THE 3.0 SPEC: Append Tag to Ciphertext
+    const authTag = cipher.getAuthTag();
+    const finalBuffer = Buffer.concat([encrypted, authTag]);
 
-    // We stringify the payload with NO spaces
-    const bodyString = JSON.stringify(responsePayload);
-    let encrypted = cipher.update(bodyString, "utf8", "base64");
-    encrypted += cipher.final("base64");
-
-    const responseAuthTag = cipher.getAuthTag();
-
-    // 4. Construct the Final Object
-    const finalResponse = {
-      encrypted_flow_data: encrypted,
-      encrypted_aes_key: encrypted_aes_key,
-      initial_vector: responseIv.toString("base64"),
-      authentication_tag: responseAuthTag.toString("base64")
-    };
-
-    // 5. THE CRITICAL CHANGE: Return the JSON, then Base64 encode the WHOLE THING
-    // Meta requires the response to be a single Base64 string of the JSON object.
-    const finalJsonString = JSON.stringify(finalResponse);
-    const base64ResponseBody = Buffer.from(finalJsonString).toString("base64");
-
-    // 6. Set Content-Type to text/plain so Meta doesn't try to parse it as JSON first
+    // 6. Return ONLY the Base64 string of the combined buffer
     res.set("Content-Type", "text/plain");
-    return res.status(200).send(base64ResponseBody);
+    return res.status(200).send(finalBuffer.toString("base64"));
 
   } catch (err) {
-    console.error("Encryption failure:", err.message);
-    return res.status(500).json({ error: "Encryption failure" });
+    console.error("❌ ERROR:", err.message);
+    return res.status(500).send("Encryption failure");
   }
 });
 

@@ -58,12 +58,17 @@ app.post("/", async (req, res) => {
                 // Fetch member details from your API
                 const mobileNumber = "8488861504"; 
                 const apiUrl = `https://utkarshjain.com/abtypchatbot/get_member.php?mobile=${mobileNumber}`;
-                
+                console.log("Fetching data from:", apiUrl); // Check your Render logs for this!
                 let memberData = { name: "", dob: "", mobile: mobileNumber };
                 try {
-                    const apiRes = await axios.get(apiUrl);
-                    if (apiRes.data) memberData = apiRes.data;
-                } catch (e) { console.error("API Error:", e.message); }
+        const apiRes = await axios.get(apiUrl);
+        if (apiRes.data) {
+            memberData = apiRes.data; 
+            console.log("Data received from API:", memberData);
+        }
+    } catch (e) {
+        console.error("API Fetch Error:", e.message);
+    }
 
                 // MUST include 'screen' and 'version' for INIT
                 responsePayloadObj = {
